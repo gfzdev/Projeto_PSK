@@ -1,0 +1,27 @@
+# Flutter/Dart
+build/
+.dart_tool/
+.connectedly/
+.pub-cache/
+.pub/
+ios/.generated/
+android/.gradle/
+*.precompiled.js
+*.node_modules
+
+# Java/Spring Boot
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+.mvn/wrapper/
+.factorypath
+
+# IDEs e Sistema
+.vscode/
+.idea/
+*.swp
+*.DS_Store
+Thumbs.db
