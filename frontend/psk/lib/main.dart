@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'admin_screen.dart';
 
 void main() {
   runApp(const PSKApp());
@@ -86,15 +89,30 @@ class _VitrineScreenState extends State<VitrineScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'PSK',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
+        // A PORTA SECRETA: Envolvemos o texto num GestureDetector
+        title: GestureDetector(
+          onLongPress: () {
+            // Quando o dono segurar o clique no título 'PSK', a tela abre!
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const AdminScreen(),
+              ),
+            ).then((_) => setState(() {})); // Atualiza a vitrine ao voltar
+          },
+          child: const Text(
+            'PSK',
+            style: TextStyle(
+              fontWeight: FontWeight.bold, 
+              fontSize: 24,
+            ),
+          ),
         ),
         centerTitle: true,
         backgroundColor: Colors.black,
         elevation: 0,
         actions: [
-          // ÍCONE DO CARRINHO COM BADGE (Contador)
+          // ÍCONE DO CARRINHO (Mantemos apenas ele aqui)
           Stack(
             alignment: Alignment.center,
             children: [
@@ -109,9 +127,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                     MaterialPageRoute(
                       builder: (context) => const CarrinhoScreen(),
                     ),
-                  ).then(
-                    (_) => setState(() {}),
-                  ); // Atualiza a vitrine ao voltar do carrinho
+                  ).then((_) => setState(() {}));
                 },
               ),
               if (carrinhoGlobal.isNotEmpty)
@@ -156,42 +172,69 @@ class _VitrineScreenState extends State<VitrineScreen> {
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
+                  // Aqui calculamos a responsividade da tela
                   int numeroDeColunas = constraints.maxWidth >= 900
                       ? 4
                       : (constraints.maxWidth >= 600 ? 3 : 2);
                   double proporcao = constraints.maxWidth >= 900 ? 0.65 : 0.55;
 
-                  return GridView.count(
-                    crossAxisCount: numeroDeColunas,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: proporcao,
-                    children: [
-                      _construirCardProduto(
-                        "Camiseta Oversized Preta",
-                        149.90,
-                        "PSKSTORY/camisa1.jpeg",
-                        "URBAN",
-                      ),
-                      _construirCardProduto(
-                        "Tee Urban Style",
-                        129.90,
-                        "PSKSTORY/camisa2.jpeg",
-                        "URBAN",
-                      ),
-                      _construirCardProduto(
-                        "Camiseta Básica Branca",
-                        99.90,
-                        "PSKSTORY/camisa3.jpeg",
-                        "URBAN",
-                      ),
-                      _construirCardProduto(
-                        "Tee Street Vibes",
-                        139.90,
-                        "PSKSTORY/camisa4.jpeg",
-                        "URBAN",
-                      ),
-                    ],
+                  // Retornamos o FutureBuilder diretamente
+                  return FutureBuilder<List<ProdutoApi>>(
+                    future: buscarProdutosDaApi(),
+                    builder: (context, snapshot) {
+                      // 1. Enquanto está à espera da API
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFFFF6B00),
+                          ),
+                        );
+                      }
+                      // 2. Se der algum erro (ex: Java desligado)
+                      else if (snapshot.hasError) {
+                        return Center(
+                          child: Text(
+                            'Erro: ${snapshot.error}',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        );
+                      }
+                      // 3. Se a lista vier vazia
+                      else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            'Nenhum produto encontrado na loja.',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        );
+                      }
+
+                      // 4. Se deu tudo certo, pega a lista e monta a tela!
+                      final produtos = snapshot.data!;
+
+                      return GridView.builder(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount:
+                              numeroDeColunas, // Variável do LayoutBuilder
+                          childAspectRatio:
+                              proporcao, // Variável do LayoutBuilder
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                        ),
+                        itemCount: produtos.length,
+                        itemBuilder: (context, index) {
+                          final produtoAtual = produtos[index];
+                          // Aqui chamamos aquele teu widget visual perfeito!
+                          return _construirCardProduto(
+                            produtoAtual.nome,
+                            produtoAtual.preco,
+                            produtoAtual.caminhoImagem,
+                            produtoAtual.tag,
+                          );
+                        },
+                      );
+                    },
                   );
                 },
               ),
@@ -603,5 +646,49 @@ Como podemos prosseguir com o pagamento?
               ),
             ),
     );
+  }
+}
+
+// Modelo de Produto para o Flutter
+class ProdutoApi {
+  final int id;
+  final String nome;
+  final double preco;
+  final String caminhoImagem;
+  final String tag;
+
+  ProdutoApi({
+    required this.id,
+    required this.nome,
+    required this.preco,
+    required this.caminhoImagem,
+    required this.tag,
+  });
+
+  factory ProdutoApi.fromJson(Map<String, dynamic> json) {
+    return ProdutoApi(
+      id: json['id'],
+      nome: json['nome'],
+      preco: json['preco']
+          .toDouble(), // Garante que o preço seja tratado como decimal
+      caminhoImagem: json['caminhoImagem'],
+      tag: json['tag'],
+    );
+  }
+}
+
+// Função que "telefona" para o Java
+Future<List<ProdutoApi>> buscarProdutosDaApi() async {
+  // ATENÇÃO: Se estiveres a testar no emulador Android, muda 'localhost' para '10.0.2.2'
+  final url = Uri.parse('http://localhost:8080/api/produtos');
+
+  final resposta = await http.get(url);
+
+  if (resposta.statusCode == 200) {
+    // Se a API responder OK (200), convertemos o JSON para uma lista de produtos
+    List jsonDecodificado = json.decode(resposta.body);
+    return jsonDecodificado.map((dado) => ProdutoApi.fromJson(dado)).toList();
+  } else {
+    throw Exception('Falha ao carregar os produtos do servidor');
   }
 }
