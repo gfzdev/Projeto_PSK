@@ -95,17 +95,12 @@ class _VitrineScreenState extends State<VitrineScreen> {
             // Quando o dono segurar o clique no título 'PSK', a tela abre!
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const AdminScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const AdminScreen()),
             ).then((_) => setState(() {})); // Atualiza a vitrine ao voltar
           },
           child: const Text(
             'PSK',
-            style: TextStyle(
-              fontWeight: FontWeight.bold, 
-              fontSize: 24,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
           ),
         ),
         centerTitle: true,
@@ -353,7 +348,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
   }
 }
 
-// 3. TELA DO CARRINHO (Baseada no seu Design do Figma)
+// 3. TELA DO CARRINHO
 class CarrinhoScreen extends StatefulWidget {
   const CarrinhoScreen({super.key});
 
@@ -373,7 +368,10 @@ class _CarrinhoScreenState extends State<CarrinhoScreen> {
     );
   }
 
+  bool _processandoCompra = false;
+
   void finalizarPedido() async {
+    // 1. Validação (Seu código)
     if (_nomeController.text.isEmpty || _telefoneController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -384,17 +382,58 @@ class _CarrinhoScreenState extends State<CarrinhoScreen> {
       return;
     }
 
-    final String numeroLoja = "5511999999999"; // Coloque o número real aqui
+    setState(() {
+      _processandoCompra =
+          true; // Trava o botão para o usuário não clicar duas vezes
+    });
 
-    // Monta o resumo dos itens
-    String resumoItens = "";
-    for (var item in carrinhoGlobal) {
-      resumoItens +=
-          "▪ ${item.quantidade}x ${item.nome} (R\$ ${item.preco.toStringAsFixed(2)})\n";
-    }
+    try {
+      // ==========================================
+      // PASSO 1: SALVAR NO BANCO DE DADOS (JAVA)
+      // ==========================================
 
-    final String mensagem =
-        '''
+      // Monta a lista de itens pegando a quantidade real do seu carrinho
+      List<Map<String, dynamic>> itensPedido = carrinhoGlobal.map((item) {
+        return {
+          "nomeProduto": item.nome,
+          "quantidade": item.quantidade,
+          "precoUnitario": item.preco,
+          
+        };
+      }).toList();
+
+      final urlBackend = Uri.parse('http://localhost:8080/api/pedidos');
+
+      final resposta = await http.post(
+        urlBackend,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          "total": valorTotal,
+          "status": "AGUARDANDO_PAGAMENTO",
+          "nomeCliente": _nomeController.text,
+          "emailCliente": _emailController.text,
+          "telefoneCliente": _telefoneController.text,
+          "itens": itensPedido  
+        }),
+      );
+
+      if (resposta.statusCode != 200 && resposta.statusCode != 201) {
+        throw Exception('Erro do servidor: Código ${resposta.statusCode}');
+      }
+
+      // ==========================================
+      // PASSO 2: ABRIR O WHATSAPP (Seu código)
+      // ==========================================
+      final String numeroLoja = "5511999999999"; // Coloque o número real aqui
+
+      String resumoItens = "";
+      for (var item in carrinhoGlobal) {
+        resumoItens +=
+            "▪ ${item.quantidade}x ${item.nome} (R\$ ${item.preco.toStringAsFixed(2)})\n";
+      }
+
+      final String mensagem =
+          '''
 🛒 *NOVO PEDIDO PSK* 🛒
 
 *Dados do Cliente:*
@@ -409,13 +448,47 @@ $resumoItens
 Como podemos prosseguir com o pagamento?
 ''';
 
-    final String url =
-        "https://wa.me/$numeroLoja?text=${Uri.encodeComponent(mensagem)}";
-    final Uri uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-      // Opcional: Limpar o carrinho após enviar
-      // setState(() { carrinhoGlobal.clear(); });
+      final String urlZap =
+          "https://wa.me/$numeroLoja?text=${Uri.encodeComponent(mensagem)}";
+      final Uri uriZap = Uri.parse(urlZap);
+
+      if (await canLaunchUrl(uriZap)) {
+        await launchUrl(uriZap, mode: LaunchMode.externalApplication);
+      }
+
+      // ==========================================
+      // PASSO 3: LIMPAR E MOSTRAR SUCESSO
+      // ==========================================
+      if (mounted) {
+        setState(() {
+          carrinhoGlobal.clear(); // Esvazia o carrinho!
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pedido registrado com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // Volta para a vitrine
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao salvar pedido: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processandoCompra = false; // Libera o botão
+        });
+      }
     }
   }
 
